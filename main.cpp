@@ -19,6 +19,8 @@
 
 DEFINE_int32(width, 640, "image width");
 DEFINE_int32(height, 480, "image height");
+DEFINE_int32(balls, 10, "balls to generate in the scene");
+DEFINE_int32(rays, 3, "number of rays to cast (doubled for each direction)");
 
 struct Sphere {
     glm::vec3 m_center;
@@ -80,7 +82,7 @@ bool inShadow(const Scene& scene, const Ray& ray) {
 
 static constexpr int MAX_BOUNCES = 3; // number of bounces in raytrace
 
-cv::Vec3b raytrace(const Scene& scene, const glm::vec3& light, const Ray& ray, int bounceIter) {
+cv::Vec3b raytrace(const Scene& scene, const glm::vec3& light, const Ray& ray, int bounceIter, bool inAir) {
     if (bounceIter >= MAX_BOUNCES) {
         return cv::Vec3b(0, 0, 0);
     }
@@ -94,23 +96,23 @@ cv::Vec3b raytrace(const Scene& scene, const glm::vec3& light, const Ray& ray, i
                 return cv::Vec3b(128 + normal.x * 127, 128 + normal.y * 127, 128 + normal.z * 127);
             }
 
+            float eta = inAir ? 1.0f / 1.655f : 1.655f / 1.0;
+
             glm::vec3 lightDir = glm::normalize(light - intersection);
             glm::vec3 reflectDir = glm::normalize(glm::reflect(-ray.m_dir, normal)); // negate to flip out
-            glm::vec3 refractDir = glm::normalize(glm::refract(-ray.m_dir, normal, 1.655f)); // negate to flip out
+            glm::vec3 refractDir = glm::normalize(glm::refract(ray.m_dir, normal, eta)); // negate to flip out
 
             const float kSmidgen = .05; // we offset from the intersection to avoid self-shadow detection
             Ray shadowRay(intersection + lightDir * kSmidgen, lightDir);
             Ray reflectRay(intersection + reflectDir * kSmidgen, reflectDir);
             Ray refractRay(intersection + refractDir * kSmidgen, refractDir);
             
-            constexpr float ambient = 0.25;
-            float brightness = inShadow(scene, shadowRay) ? ambient : 1.0;
-
+            float brightness = inShadow(scene, shadowRay) ? 0.125 : 0.50;
             constexpr float fracReflection = 0.25;
             constexpr float fracRefract = 0.25;
-            return (1.0 - fracReflection - fracRefract) * brightness * sphere.m_color
-                + fracReflection * raytrace(scene, light, reflectRay, bounceIter + 1)
-                + fracRefract * raytrace(scene, light, refractRay, bounceIter + 1);
+            return brightness * sphere.m_color
+                + fracReflection * raytrace(scene, light, reflectRay, bounceIter + 1, inAir)
+                + fracRefract * raytrace(scene, light, refractRay, bounceIter + 1, !inAir);
         }
     }
     return cv::Vec3b(0, 0, 0);
@@ -125,36 +127,34 @@ int main(int argc, char** argv) {
 
     // coordinate system: screen center is world (0, 0), world units are pixels 
     Scene scene;
-    scene.emplace_back(
-        glm::vec3(0.0, 0.0, 600.0), 
-        cv::Vec3b(127, 0, 127),
-        200.0
-    );
+    
+    for (int ball = 0; ball < FLAGS_balls; ball++) {
+        ;
+        scene.emplace_back(
+            glm::vec3(
+                rand() % (FLAGS_width / 2) - FLAGS_width / 4, 
+                rand() % (FLAGS_height / 2) - FLAGS_height / 4,
+                rand() % 1000 + 500),
+            cv::Vec3b(rand() % 255, rand() % 255, rand() % 255),
+            rand() % 250
+        );
+    }
 
-    scene.emplace_back(
-        glm::vec3(0.0, 0.0, 200.0),
-        cv::Vec3b(0, 127, 127),
-        100.0
-    );
-
-   /* scene.emplace_back(
-        glm::vec3(300.0, 0.0, 600.0),
-        cv::Vec3b(200, 50, 0),
-        50.0
-    );*/
-
-    glm::vec3 light(500.0, 500.0, 300.0);
+    glm::vec3 light(500.0, -500.0, 300.0);
     glm::vec3 origin(0.0);
 
     float focal = 300.0; // assumed camera focal in pixels
     cv::Mat output(cv::Size(FLAGS_width, FLAGS_height), CV_8UC3);
     for (int y = 0; y < FLAGS_height; y++) {
         for (int x = 0; x < FLAGS_width; x++) {
-            glm::vec3 dir = glm::normalize(
-                glm::vec3(x - FLAGS_width / 2, y - FLAGS_height / 2, focal)
-            );
-            Ray ray(origin, dir);
-            output.at<cv::Vec3b>(y, x) = raytrace(scene, light, ray, 0);
+            cv::Vec3b color(0, 0, 0);
+
+            for (int k = -FLAGS_rays; k <= FLAGS_rays; k++) {
+                Ray ray(origin,
+                    glm::normalize(glm::vec3(x - FLAGS_width / 2, y - FLAGS_height / 2 + k, focal)));
+                color += raytrace(scene, light, ray, 0, true) / FLAGS_rays;
+            }
+            output.at<cv::Vec3b>(y, x) = color;
         }
     }
 
