@@ -78,25 +78,39 @@ bool inShadow(const Scene& scene, const Ray& ray) {
     return false;
 }
 
-cv::Vec3b raytrace(const Scene& scene, const glm::vec3& light, const Ray& ray) {
+static constexpr int MAX_BOUNCES = 3; // number of bounces in raytrace
+
+cv::Vec3b raytrace(const Scene& scene, const glm::vec3& light, const Ray& ray, int bounceIter) {
+    if (bounceIter >= MAX_BOUNCES) {
+        return cv::Vec3b(0, 0, 0);
+    }
+    
     for (const Sphere& sphere : scene) {
         glm::vec3 intersection = intersectSphere(sphere, ray);
         if (intersection != glm::vec3(-1)) {
             glm::vec3 normal = glm::normalize(intersection - sphere.m_center);
-            glm::vec3 lightRay = glm::normalize(light - intersection);
-
             bool kVizNormals = false;
             if (kVizNormals) {
                 return cv::Vec3b(128 + normal.x * 127, 128 + normal.y * 127, 128 + normal.z * 127);
             }
 
-            const float kSmidgen = .05; // we offset from the intersection to avoid self-shadow detection
-            Ray shadowRay(intersection + lightRay * kSmidgen, lightRay);
-            if (inShadow(scene, shadowRay)) {
-                return cv::Vec3b(0, 127, 0);
-            }
+            glm::vec3 lightDir = glm::normalize(light - intersection);
+            glm::vec3 reflectDir = glm::normalize(glm::reflect(-ray.m_dir, normal)); // negate to flip out
+            glm::vec3 refractDir = glm::normalize(glm::refract(-ray.m_dir, normal, 1.655f)); // negate to flip out
 
-            return sphere.m_color;
+            const float kSmidgen = .05; // we offset from the intersection to avoid self-shadow detection
+            Ray shadowRay(intersection + lightDir * kSmidgen, lightDir);
+            Ray reflectRay(intersection + reflectDir * kSmidgen, reflectDir);
+            Ray refractRay(intersection + refractDir * kSmidgen, refractDir);
+            
+            constexpr float ambient = 0.25;
+            float brightness = inShadow(scene, shadowRay) ? ambient : 1.0;
+
+            constexpr float fracReflection = 0.25;
+            constexpr float fracRefract = 0.25;
+            return (1.0 - fracReflection - fracRefract) * brightness * sphere.m_color
+                + fracReflection * raytrace(scene, light, reflectRay, bounceIter + 1)
+                + fracRefract * raytrace(scene, light, refractRay, bounceIter + 1);
         }
     }
     return cv::Vec3b(0, 0, 0);
@@ -112,15 +126,27 @@ int main(int argc, char** argv) {
     // coordinate system: screen center is world (0, 0), world units are pixels 
     Scene scene;
     scene.emplace_back(
-        glm::vec3(0.0, 0.0, 300.0), 
+        glm::vec3(0.0, 0.0, 600.0), 
         cv::Vec3b(127, 0, 127),
         200.0
     );
 
+    scene.emplace_back(
+        glm::vec3(0.0, 0.0, 200.0),
+        cv::Vec3b(0, 127, 127),
+        100.0
+    );
+
+   /* scene.emplace_back(
+        glm::vec3(300.0, 0.0, 600.0),
+        cv::Vec3b(200, 50, 0),
+        50.0
+    );*/
+
     glm::vec3 light(500.0, 500.0, 300.0);
     glm::vec3 origin(0.0);
 
-    float focal = 100.0; // assumed camera focal in pixels
+    float focal = 300.0; // assumed camera focal in pixels
     cv::Mat output(cv::Size(FLAGS_width, FLAGS_height), CV_8UC3);
     for (int y = 0; y < FLAGS_height; y++) {
         for (int x = 0; x < FLAGS_width; x++) {
@@ -128,11 +154,11 @@ int main(int argc, char** argv) {
                 glm::vec3(x - FLAGS_width / 2, y - FLAGS_height / 2, focal)
             );
             Ray ray(origin, dir);
-            output.at<cv::Vec3b>(y, x) = raytrace(scene, light, ray);
+            output.at<cv::Vec3b>(y, x) = raytrace(scene, light, ray, 0);
         }
     }
 
-    cv::imwrite("output.png", output);
-
+    cv::imshow("output", output);
+    cv::waitKey(0);
     return 0;
 }
