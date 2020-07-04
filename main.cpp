@@ -41,11 +41,17 @@ cv::Vec3b raytrace(const Scene& scene, const glm::vec3& light, const glm::vec3& 
             4.0 * (pow(sphere.m_radius, 2.0) - pow(glm::length(sphere.m_center), 2.0))
             + 4.0 * pow(glm::dot(dir, sphere.m_center), 2.0);
         if (det >= 0.0) {
-            float intersectionTime = -0.5 * det + glm::dot(dir, sphere.m_center);
+            float intersectionTime = -0.5 * sqrt(det) + glm::dot(dir, sphere.m_center);
             glm::vec3 intersection = dir * intersectionTime;
             glm::vec3 normal = glm::normalize(intersection - sphere.m_center);
+            glm::vec3 lightRay = glm::normalize(light - intersection);
 
-            float brightness = 10000 / glm::length(light - intersection);
+            bool kVizNormals = false;
+            if (kVizNormals) {
+                return cv::Vec3b(128 + normal.x * 127, 128 + normal.y * 127, 128 + normal.z * 127);
+            }
+
+            float brightness = 1000.0 / glm::length(light - intersection);
             return sphere.m_color * brightness;
         }
     }
@@ -67,7 +73,7 @@ int main(int argc, char** argv) {
         200.0
     );
 
-    glm::vec3 light(500.0, 500.0, 400.0);
+    glm::vec3 light(100.0, 100.0, 300.0);
 
     float focal = 100.0; // assumed camera focal in pixels
     cv::Mat output(cv::Size(FLAGS_width, FLAGS_height), CV_8UC3);
