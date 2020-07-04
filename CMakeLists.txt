@@ -9,6 +9,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /MTd")
 
 find_package(gflags CONFIG REQUIRED)
 find_package(glog CONFIG REQUIRED)
+find_package(glm CONFIG REQUIRED)
 find_package(opencv CONFIG REQUIRED)
 
 add_executable(
@@ -20,6 +21,8 @@ target_link_libraries(
 
     gflags_static
     glog::glog
+
+    glm
 
     opencv_core
     opencv_imgproc
